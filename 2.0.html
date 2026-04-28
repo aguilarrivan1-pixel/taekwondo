@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>TKD Scoreboard Pro - Multi-Juez</title>
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+    <script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
+
+    <style>
+        body { margin:0; font-family:'Segoe UI', sans-serif; background:black; color:white; display:flex; height:100vh; overflow:hidden; }
+        .lado { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; transition: 0.3s; }
+        .azul { background:#0033cc; }
+        .rojo { background:#a00000; }
+        .score { font-size:150px; font-weight: bold; }
+        .nombre { font-size:40px; margin-bottom:10px; text-transform: uppercase; }
+        .gam { font-size:24px; background: rgba(0,0,0,0.3); padding: 5px 15px; border-radius: 20px; }
+        
+        .centro { width:350px; background:#111; display:flex; flex-direction:column; align-items:center; justify-content:center; border-left: 2px solid #333; border-right: 2px solid #333; }
+        .timer { background:yellow; color:black; font-size:80px; padding:10px 30px; margin:20px; font-family: monospace; border-radius: 10px; }
+        
+        /* Estilos del QR */
+        #qrcode { background: white; padding: 10px; margin-top: 20px; border-radius: 5px; }
+        .qr-label { font-size: 12px; margin-top: 5px; color: #aaa; }
+
+        button { margin:5px; padding:12px; font-size:14px; cursor:pointer; border:none; border-radius:5px; font-weight: bold; }
+        .control { background:#444; color:white; width: 80%; }
+        .penal { background:#ffaa00; color: black; }
+        input { width: 80%; margin: 5px; padding: 8px; border-radius: 4px; border: none; }
+        
+        /* Vista de Juez (Oculta por defecto) */
+        #juez-ui { display:none; position: fixed; top:0; left:0; width:100%; height:100%; background:#000; z-index:1000; flex-direction: column; }
+        .juez-btn { flex: 1; width: 100%; font-size: 40px; color: white; border: 2px solid black; }
+    </style>
+</head>
+
+<body>
+
+<div id="marcador-ui" style="display: flex; width: 100%;">
+    <div class="lado azul">
+        <div class="nombre" id="nAzul">AZUL</div>
+        <div class="score" id="azul">0</div>
+        <div class="gam">Gam-jeom: <span id="gAzul">0</span></div>
+        <button class="penal" onclick="penal('azul')">PENAL AZUL</button>
+    </div>
+
+    <div class="centro">
+        <div style="font-size: 20px;">ROUND <span id="round">1</span></div>
+        <div class="timer" id="tiempo">120</div>
+        
+        <button class="control" onclick="start()">START</button>
+        <button class="control" onclick="pause()">PAUSE</button>
+        <button class="control" onclick="reset()">RESET / NEW ROUND</button>
+        
+        <div id="qrcode"></div>
+        <div class="qr-label">ESCANEA PARA SER JUEZ</div>
+
+        <div style="margin-top: 20px; width: 100%; text-align: center;">
+            <input id="rname" placeholder="Nombre Rojo">
+            <input id="aname" placeholder="Nombre Azul">
+            <button class="control" onclick="setNombres()">ACTUALIZAR NOMBRES</button>
+        </div>
+    </div>
+
+    <div class="lado rojo">
+        <div class="nombre" id="nRojo">ROJO</div>
+        <div class="score" id="rojo">0</div>
+        <div class="gam">Gam-jeom: <span id="gRojo">0</span></div>
+        <button class="penal" onclick="penal('rojo')">PENAL ROJO</button>
+    </div>
+</div>
+
+<div id="juez-ui">
+    <button class="juez-btn" style="background:#0033cc;" onclick="enviarPunto('azul', 1)">AZUL +1</button>
+    <button class="juez-btn" style="background:#0033cc;" onclick="enviarPunto('azul', 2)">AZUL +2</button>
+    <button class="juez-btn" style="background:#a00000;" onclick="enviarPunto('rojo', 1)">ROJO +1</button>
+    <button class="juez-btn" style="background:#a00000;" onclick="enviarPunto('rojo', 2)">ROJO +2</button>
+    <button class="juez-btn" style="background:#444;" onclick="document.getElementById('juez-ui').style.display='none'">CERRAR</button>
+</div>
+
+<script>
+// --- CONFIGURACIÓN DE COMUNICACIÓN ---
+// Nota: Para uso real, obtén una API KEY gratuita en ably.com
+const ably = new Ably.Realtime('lghMsA.rFblDA:Uo_Ya0lwt-osgx2EhIM1egWJb1pTR4seB8MQKN_Rqp8'); 
+const canal = ably.channels.get('tkd-match-1');
+
+// --- VARIABLES DE ESTADO ---
+let rojo=0, azul=0, gRojo=0, gAzul=0, tiempo=120, intervalo=null, round=1;
+
+// --- LÓGICA DE JUEZ (ENVÍO) ---
+function enviarPunto(equipo, puntos) {
+    canal.publish('punto', { equipo, puntos });
+}
+
+// --- LÓGICA DE MARCADOR (RECEPCIÓN) ---
+canal.subscribe('punto', (msg) => {
+    const data = msg.data;
+    sumar(data.equipo, data.puntos);
+});
+
+// --- FUNCIONES DEL MARCADOR ---
+function actualizar(){
+    document.getElementById("rojo").innerText=rojo;
+    document.getElementById("azul").innerText=azul;
+    document.getElementById("gRojo").innerText=gRojo;
+    document.getElementById("gAzul").innerText=gAzul;
+    document.getElementById("tiempo").innerText=tiempo;
+    document.getElementById("round").innerText=round;
+}
+
+function sumar(e,p){
+    if(e==="rojo") rojo+=p;
+    else azul+=p;
+    actualizar();
+}
+
+function penal(e){
+    if(e==="rojo"){ gRojo++; azul++; }
+    else { gAzul++; rojo++; }
+    actualizar();
+}
+
+function start(){
+    if(intervalo) return;
+    intervalo=setInterval(()=>{
+        if(tiempo>0){ tiempo--; actualizar(); }
+        else { pause(); alert("FIN DEL ROUND"); }
+    },1000);
+}
+
+function pause(){ clearInterval(intervalo); intervalo=null; }
+
+function reset(){
+    pause();
+    tiempo=120; rojo=0; azul=0; gRojo=0; gAzul=0; round++;
+    actualizar();
+}
+
+function setNombres(){
+    document.getElementById("nRojo").innerText=document.getElementById("rname").value||"ROJO";
+    document.getElementById("nAzul").innerText=document.getElementById("aname").value||"AZUL";
+}
+
+// --- GENERAR QR ---
+// El QR mandará al celular a la misma página pero con un parámetro
+const urlJuez = window.location.href + "?modo=juez";
+new QRCode(document.getElementById("qrcode"), {
+    text: urlJuez,
+    width: 128,
+    height: 128
+});
+
+// Detectar si el dispositivo es Juez o Marcador
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get('modo') === 'juez') {
+    document.getElementById('marcador-ui').style.display = 'none';
+    document.getElementById('juez-ui').style.display = 'flex';
+}
+</script>
+</body>
+</html>
