@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Redireccionando...</title>
+    <script>
+        // Capturamos la URL actual que causó el error 404
+        var urlActual = window.location.href;
+
+        // Verificamos si la URL contiene letras en mayúscula en la extensión o el nombre
+        if (/[A-Z]/.test(urlActual)) {
+            // Convertimos toda la URL a minúsculas y redirigimos inmediatamente
+            var urlMinusculas = urlActual.toLowerCase();
+            window.location.replace(urlMinusculas);
+        } else {
+            // Si ya estaba en minúsculas y aun así dio 404, mostramos un mensaje amigable
+            document.write('<div style="text-align:center; margin-top:50px; font-family:sans-serif; color:white; background:#12141c; height:100vh; padding-top:40px;">');
+            document.write('<h2>Área Control - Liga de Taekwondo de Bogotá</h2>');
+            document.write('<p>El archivo no existe. Verifica que el nombre del marcador sea correcto.</p>');
+            document.write('<a href="index.html" style="color:#ffaa00;">Volver al inicio</a>');
+            document.write('</div>');
+        }
+    </script>
+</head>
+<body style="background: #12141c;">
+</body>
+</html>
