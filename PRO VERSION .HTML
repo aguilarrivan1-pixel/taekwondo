@@ -230,6 +230,13 @@
 </head>
 <body>
 
+<script>
+    // CONTROLADOR ANTICUADO DE EXTENSIONES URL (Solución al error 404 de GitHub case-sensitive)
+    if (window.location.pathname.endsWith('.HTML')) {
+        window.location.replace(window.location.href.replace('.HTML', '.html'));
+    }
+</script>
+
 <div class="log-container" id="visual-log-container"></div>
 
 <div id="pantalla-ganador">
@@ -436,8 +443,10 @@ const canal = ably.channels.get('tkd-area-' + areaID);
 let rojo=0, azul=0, gRojo=0, gAzul=0, tiempo=120, tiempoGuardadoAntesDoc=120, intervalo=null, round=1, wRojo=0, wAzul=0, clics=[];
 let modoJueces = 2; let ventanaTV = null; let enModoDoctor = false;
 let combatesFinalizadosLogs = [];
+let bloqueoCombatePorVictoria = false;
 
 canal.subscribe('p', (msg) => {
+    if(bloqueoCombatePorVictoria) return;
     const d = msg.data;
     if(d.type === 'LOCK_WINNER') { renderizarPantallaGanadorRemoto(d.color, d.name, d.club); return; }
     if(d.type === 'UNLOCK_WINNER') { removerPantallaGanadorRemoto(); return; }
@@ -459,6 +468,7 @@ canal.subscribe('p', (msg) => {
 });
 
 function efectuarPunto(equipo, puntos, juecesTxt) {
+    if(bloqueoCombatePorVictoria) return;
     if(equipo === 'rojo') rojo += puntos; else azul += puntos;
     dispararLogVisual(equipo, puntos, juecesTxt);
     registrarEnHistorial(equipo, puntos, juecesTxt);
@@ -487,7 +497,7 @@ function registrarEnHistorial(equipo, puntos, procedencia) {
     const item = document.createElement("div");
     item.className = "history-item";
     let min = Math.floor(tiempo / 60); let seg = tiempo % 60;
-    item.innerHTML = `<span style="color:${equipo==='azul'?'#4d7cff':'#ff4d4d'}">[R${round} - ${min}:${seg<10?'0':''}${seg}] +${puntos} ${equipo.toUpperCase()}</span><span style="color:gray;">${procedencia}</span>`;
+    item.innerHTML = `<span style="color:${equipo==='azul'?'#4d7cff':'#ff4d4d'}">[R${round} - ${min}:${seg<10?'0':''}${seg}] ${puntos >= 0 ? '+' : ''}${puntos} ${equipo.toUpperCase()}</span><span style="color:gray;">${procedencia}</span>`;
     lista.insertBefore(item, lista.firstChild);
 }
 
@@ -500,6 +510,7 @@ function switchTab(t) {
 }
 
 function editarTiempoManual() {
+    if(bloqueoCombatePorVictoria) return;
     pause();
     let entrada = prompt("Modificar tiempo (Ej: 2:00, 1:30):", document.getElementById("tiempo").innerText.replace("MED ", ""));
     if(entrada && entrada.includes(":")) {
@@ -510,6 +521,7 @@ function editarTiempoManual() {
 }
 
 function activarDoctor() {
+    if(bloqueoCombatePorVictoria) return;
     pause(); tiempoGuardadoAntesDoc = tiempo; enModoDoctor = true; tiempo = 60;
     document.getElementById("btn-medico").style.display = "none";
     document.getElementById("btn-cancel-medico").style.display = "block";
@@ -552,26 +564,44 @@ function actualizar(){
         ventanaTV.document.getElementById("tv-rw-azul").innerText = `ROUND: ${wAzul}`;
         ventanaTV.document.getElementById("tv-rw-rojo").innerText = `ROUND: ${wRojo}`;
     }
-
-    // EVALUACIÓN REGLAMENTARIA DE FALTAS (GAM-JEOM MAX)
-    if(gRojo >= 5) { ganarRoundPorFaltas('azul'); }
-    else if(gAzul >= 5) { ganarRoundPorFaltas('rojo'); }
 }
 
-// NUEVA FUNCIÓN AUTOMÁTICA DE TRASLADO DE ROUND POR EXCESO DE GAM-JEOM (EVITA ERRORES)
+// VALIDACIÓN INMEDIATA ANTES DE RENDERIZAR EXCESO (Corte de seguridad para evitar sextas faltas)
+function penal(e){ 
+    if(bloqueoCombatePorVictoria) return;
+    if(e==='rojo'){ 
+        gRojo++; 
+        azul++; 
+        registrarEnHistorial('azul', 1, 'Gam-jeom Rojo');
+        if(gRojo >= 5) { actualizar(); ganarRoundPorFaltas('azul'); return; }
+    } else { 
+        gAzul++; 
+        rojo++; 
+        registrarEnHistorial('rojo', 1, 'Gam-jeom Azul');
+        if(gAzul >= 5) { actualizar(); ganarRoundPorFaltas('rojo'); return; }
+    } 
+    actualizar(); 
+}
+
 function ganarRoundPorFaltas(colorGanadorRound) {
     pause();
     if(colorGanadorRound === 'rojo') wRojo++; else wAzul++;
+    actualizar();
     
     if(wRojo === 2 || wAzul === 2) {
-        finalizarYRegistrarCombateCompleto(colorGanadorRound);
+        bloqueoCombatePorVictoria = true;
+        setTimeout(() => { finalizarYRegistrarCombateCompleto(colorGanadorRound); }, 400);
     } else {
-        // Guarda registro del round en el log y avanza automáticamente de asalto sin romper nada
-        registrarEnHistorial(colorGanadorRound, 0, 'Ganado por Exceso de Gamjeoms Oponente');
-        setTimeout(() => {
-            forzarSiguienteRoundManual();
-        }, 500);
+        registrarEnHistorial(colorGanadorRound, 0, 'Ganado por Exceso de Gam-jeoms');
+        setTimeout(() => { forzarSiguienteRoundManual(); }, 1000);
     }
+}
+
+function restar(e){ 
+    if(bloqueoCombatePorVictoria) return;
+    if(e==='rojo'){ if(rojo>0)rojo--; registrarEnHistorial('rojo', -1, 'Corrección'); } 
+    else { if(azul>0)azul--; registrarEnHistorial('azul', -1, 'Corrección'); } 
+    actualizar(); 
 }
 
 function ganarRound(color){
@@ -581,7 +611,8 @@ function ganarRound(color){
     actualizar();
     
     if(wRojo === 2 || wAzul === 2) { 
-        finalizarYRegistrarCombateCompleto(color); 
+        bloqueoCombatePorVictoria = true;
+        setTimeout(() => { finalizarYRegistrarCombateCompleto(color); }, 400);
     } else { 
         forzarSiguienteRoundManual();
     }
@@ -595,12 +626,12 @@ function forzarSiguienteRoundManual() {
 
 function decidirSuperioridad(color) { registrarEnHistorial(color, 0, 'Superioridad Jueces'); ganarRound(color); }
 
-// GUARDADO DEL REGISTRO CON CAMPO DE COMBATE Y DELEGACIONES
 function finalizarYRegistrarCombateCompleto(colorGanador) {
-    const nombreAzul = document.getElementById("lbl-name-azul").innerText;
-    const nombreRojo = document.getElementById("lbl-name-rojo").innerText;
-    const clubAzul = document.getElementById("lbl-club-azul").innerText;
-    const clubRojo = document.getElementById("lbl-club-rojo").innerText;
+    pause();
+    const nombreAzul = document.getElementById("lbl-name-azul").innerText || "AZUL";
+    const nombreRojo = document.getElementById("lbl-name-rojo").innerText || "ROJO";
+    const clubAzul = document.getElementById("lbl-club-azul").innerText || "DELEGACIÓN AZUL";
+    const clubRojo = document.getElementById("lbl-club-rojo").innerText || "DELEGACIÓN ROJA";
     const combateNum = document.getElementById("cfg-combate-num").value || "1";
 
     const registroCombate = {
@@ -713,9 +744,8 @@ function removerPantallaGanadorRemoto() {
 }
 
 function resetParametrosCombateSiguiente() {
-    rojo=0; azul=0; gRojo=0; gAzul=0; round=1; wRojo=0; wAzul=0; enModoDoctor=false;
+    rojo=0; azul=0; gRojo=0; gAzul=0; round=1; wRojo=0; wAzul=0; enModoDoctor=false; bloqueoCombatePorVictoria = false;
     
-    // Incrementar automáticamente el correlativo de combate para agilizar el trabajo de la mesa
     let numActual = parseInt(document.getElementById("cfg-combate-num").value) || 1;
     document.getElementById("cfg-combate-num").value = numActual + 1;
     
@@ -727,6 +757,7 @@ function resetParametrosCombateSiguiente() {
 }
 
 function start(){ 
+    if(bloqueoCombatePorVictoria) return;
     if(!intervalo) {
         document.getElementById("panel-superioridad").style.display = "none";
         intervalo = setInterval(() => { 
@@ -757,18 +788,6 @@ function finalizarRound(){
     } 
 }
 
-function penal(e){ 
-    if(e==='rojo'){ gRojo++; azul++; registrarEnHistorial('azul', 1, 'Gam-jeom Rojo'); } 
-    else { gAzul++; rojo++; registrarEnHistorial('rojo', 1, 'Gam-jeom Azul'); } 
-    actualizar(); 
-}
-
-function restar(e){ 
-    if(e==='rojo'){ if(rojo>0)rojo--; registrarEnHistorial('rojo', -1, 'Corrección'); } 
-    else { if(azul>0)azul--; registrarEnHistorial('azul', -1, 'Corrección'); } 
-    actualizar(); 
-}
-
 function setNombres(){
     document.getElementById("lbl-name-azul").innerText = document.getElementById("aname").value.toUpperCase() || "AZUL";
     document.getElementById("lbl-name-rojo").innerText = document.getElementById("rname").value.toUpperCase() || "ROJO";
@@ -789,7 +808,7 @@ function cambiarConfigTiempo() {
 }
 
 function resetMatch(){ if(confirm("¿Reestablecer asalto actual?")) { location.reload(); } }
-function enviarPunto(equipo, puntos) { if (navigator.vibrate) navigator.vibrate(45); canal.publish('p', { e: equipo, p: puntos }); }
+function enviarPunto(equipo, puntos) { if(bloqueoCombatePorVictoria) return; if (navigator.vibrate) navigator.vibrate(45); canal.publish('p', { e: equipo, p: puntos }); }
 
 function abrirPantallaTV() {
     if(ventanaTV && !ventanaTV.closed) { ventanaTV.focus(); return; }
