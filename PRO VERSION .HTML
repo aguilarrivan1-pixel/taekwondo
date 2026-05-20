@@ -230,13 +230,6 @@
 </head>
 <body>
 
-<script>
-    // CONTROLADOR ANTICUADO DE EXTENSIONES URL (Solución al error 404 de GitHub case-sensitive)
-    if (window.location.pathname.endsWith('.HTML')) {
-        window.location.replace(window.location.href.replace('.HTML', '.html'));
-    }
-</script>
-
 <div class="log-container" id="visual-log-container"></div>
 
 <div id="pantalla-ganador">
@@ -244,7 +237,7 @@
         <div class="ganador-titulo">COMBATE CONCLUIDO</div>
         <div class="ganador-nombre" id="ganador-texto">AZUL</div>
         <div class="ganador-club" id="ganador-club-texto">DELEGACIÓN</div>
-        <button class="btn-ctrl" style="background:#ffaa00; color:black; padding:14px 35px; font-size:14px; border-radius:8px; box-shadow: 0 4px 10px rgba(0,0,0,0.3);" onclick="siguienteCombateListo()">➡️ SIGUIENTE COMBATE</button>
+        <button class="btn-ctrl" style="background:#ffaa00; color:black; padding:14px 35px; font-size:14px; border-radius:8px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); cursor: pointer;" onclick="siguienteCombateListo()">➡️ SIGUIENTE COMBATE</button>
     </div>
 </div>
 
@@ -445,8 +438,9 @@ let modoJueces = 2; let ventanaTV = null; let enModoDoctor = false;
 let combatesFinalizadosLogs = [];
 let bloqueoCombatePorVictoria = false;
 
+// Manejo seguro de mensajes remotos
 canal.subscribe('p', (msg) => {
-    if(bloqueoCombatePorVictoria) return;
+    if(bloqueoCombatePorVictoria) return; // CORRECCIÓN CRÍTICA: Ignora ráfagas de red si ya terminó
     const d = msg.data;
     if(d.type === 'LOCK_WINNER') { renderizarPantallaGanadorRemoto(d.color, d.name, d.club); return; }
     if(d.type === 'UNLOCK_WINNER') { removerPantallaGanadorRemoto(); return; }
@@ -566,34 +560,49 @@ function actualizar(){
     }
 }
 
-// VALIDACIÓN INMEDIATA ANTES DE RENDERIZAR EXCESO (Corte de seguridad para evitar sextas faltas)
+// CORRECCIÓN ATÓMICA DE GAM-JEOMS: Detiene el reloj antes de renderizar alertas para evitar parálisis
 function penal(e){ 
     if(bloqueoCombatePorVictoria) return;
+    
     if(e==='rojo'){ 
         gRojo++; 
         azul++; 
         registrarEnHistorial('azul', 1, 'Gam-jeom Rojo');
-        if(gRojo >= 5) { actualizar(); ganarRoundPorFaltas('azul'); return; }
+        if(gRojo >= 5) { 
+            clearInterval(intervalo); intervalo = null; // Detención atómica inmediata del hilo
+            actualizar(); 
+            ganarRoundPorFaltas('azul'); 
+            return; 
+        }
     } else { 
         gAzul++; 
         rojo++; 
         registrarEnHistorial('rojo', 1, 'Gam-jeom Azul');
-        if(gAzul >= 5) { actualizar(); ganarRoundPorFaltas('rojo'); return; }
+        if(gAzul >= 5) { 
+            clearInterval(intervalo); intervalo = null; // Detención atómica inmediata del hilo
+            actualizar(); 
+            ganarRoundPorFaltas('rojo'); 
+            return; 
+        }
     } 
     actualizar(); 
 }
 
 function ganarRoundPorFaltas(colorGanadorRound) {
-    pause();
+    // Forzamos pausa absoluta por seguridad
+    clearInterval(intervalo); intervalo = null;
+    document.getElementById("btn-play").innerText = "START ROUND";
+    document.getElementById("btn-play").style.backgroundColor = "#28a745";
+
     if(colorGanadorRound === 'rojo') wRojo++; else wAzul++;
     actualizar();
     
     if(wRojo === 2 || wAzul === 2) {
-        bloqueoCombatePorVictoria = true;
-        setTimeout(() => { finalizarYRegistrarCombateCompleto(colorGanadorRound); }, 400);
+        bloqueoCombatePorVictoria = true; 
+        finalizarYRegistrarCombateCompleto(colorGanadorRound);
     } else {
         registrarEnHistorial(colorGanadorRound, 0, 'Ganado por Exceso de Gam-jeoms');
-        setTimeout(() => { forzarSiguienteRoundManual(); }, 1000);
+        setTimeout(() => { forzarSiguienteRoundManual(); }, 600);
     }
 }
 
@@ -605,33 +614,37 @@ function restar(e){
 }
 
 function ganarRound(color){
-    pause();
+    clearInterval(intervalo); intervalo = null;
     document.getElementById("panel-superioridad").style.display = "none";
     if(color === 'rojo') wRojo++; else wAzul++;
     actualizar();
     
     if(wRojo === 2 || wAzul === 2) { 
         bloqueoCombatePorVictoria = true;
-        setTimeout(() => { finalizarYRegistrarCombateCompleto(color); }, 400);
+        finalizarYRegistrarCombateCompleto(color);
     } else { 
         forzarSiguienteRoundManual();
     }
 }
 
 function forzarSiguienteRoundManual() {
-    pause(); round++; rojo=0; azul=0; gRojo=0; gAzul=0;
+    clearInterval(intervalo); intervalo = null;
+    round++; rojo=0; azul=0; gRojo=0; gAzul=0;
     document.getElementById("panel-superioridad").style.display = "none";
+    document.getElementById("btn-play").innerText = "START ROUND";
+    document.getElementById("btn-play").style.backgroundColor = "#28a745";
     cambiarConfigTiempo(); actualizar();
 }
 
 function decidirSuperioridad(color) { registrarEnHistorial(color, 0, 'Superioridad Jueces'); ganarRound(color); }
 
 function finalizarYRegistrarCombateCompleto(colorGanador) {
-    pause();
-    const nombreAzul = document.getElementById("lbl-name-azul").innerText || "AZUL";
-    const nombreRojo = document.getElementById("lbl-name-rojo").innerText || "ROJO";
-    const clubAzul = document.getElementById("lbl-club-azul").innerText || "DELEGACIÓN AZUL";
-    const clubRojo = document.getElementById("lbl-club-rojo").innerText || "DELEGACIÓN ROJA";
+    clearInterval(intervalo); intervalo = null; // Apagado total del timer
+    
+    const nombreAzul = document.getElementById("aname").value.trim().toUpperCase() || "AZUL";
+    const nombreRojo = document.getElementById("rname").value.trim().toUpperCase() || "ROJO";
+    const clubAzul = document.getElementById("aclub").value.trim().toUpperCase() || "DELEGACIÓN AZUL";
+    const clubRojo = document.getElementById("rclub").value.trim().toUpperCase() || "DELEGACIÓN ROJA";
     const combateNum = document.getElementById("cfg-combate-num").value || "1";
 
     const registroCombate = {
@@ -709,7 +722,9 @@ function imprimirHistorialDelDia() {
 
 function mostrarPantallaGanador(color, nombre, club) {
     renderizarPantallaGanadorRemoto(color, nombre, club);
-    canal.publish('p', { type: 'LOCK_WINNER', color: color, name: nombre, club: club });
+    try {
+        canal.publish('p', { type: 'LOCK_WINNER', color: color, name: nombre, club: club });
+    } catch(err) { console.log("Error de red al publicar ganador"); }
 }
 
 function renderizarPantallaGanadorRemoto(color, nombre, club) {
@@ -730,7 +745,9 @@ function renderizarPantallaGanadorRemoto(color, nombre, club) {
 }
 
 function siguienteCombateListo() {
-    canal.publish('unlock_winner', { type: 'UNLOCK_WINNER' });
+    try {
+        canal.publish('p', { type: 'UNLOCK_WINNER' });
+    } catch(err) { console.log("Error de red al liberar pantalla"); }
     removerPantallaGanadorRemoto();
     resetParametrosCombateSiguiente();
 }
@@ -744,7 +761,8 @@ function removerPantallaGanadorRemoto() {
 }
 
 function resetParametrosCombateSiguiente() {
-    rojo=0; azul=0; gRojo=0; gAzul=0; round=1; wRojo=0; wAzul=0; enModoDoctor=false; bloqueoCombatePorVictoria = false;
+    rojo=0; azul=0; gRojo=0; gAzul=0; round=1; wRojo=0; wAzul=0; enModoDoctor=false; 
+    bloqueoCombatePorVictoria = false; // Liberación total
     
     let numActual = parseInt(document.getElementById("cfg-combate-num").value) || 1;
     document.getElementById("cfg-combate-num").value = numActual + 1;
@@ -762,8 +780,9 @@ function start(){
         document.getElementById("panel-superioridad").style.display = "none";
         intervalo = setInterval(() => { 
             if(tiempo > 0){ tiempo--; actualizar(); } else { 
+                clearInterval(intervalo); intervalo = null;
                 if(enModoDoctor) {
-                    pause(); enModoDoctor = false; ocultarBotonesDoctorQuitar();
+                    enModoDoctor = false; ocultarBotonesDoctorQuitar();
                     alert("Tiempo médico finalizado."); tiempo = tiempoGuardadoAntesDoc; actualizar();
                 } else { finalizarRound(); }
             } 
@@ -789,10 +808,10 @@ function finalizarRound(){
 }
 
 function setNombres(){
-    document.getElementById("lbl-name-azul").innerText = document.getElementById("aname").value.toUpperCase() || "AZUL";
-    document.getElementById("lbl-name-rojo").innerText = document.getElementById("rname").value.toUpperCase() || "ROJO";
-    document.getElementById("lbl-club-azul").innerText = document.getElementById("aclub").value.toUpperCase() || "CLUB / DELEGACIÓN";
-    document.getElementById("lbl-club-rojo").innerText = document.getElementById("rclub").value.toUpperCase() || "CLUB / DELEGACIÓN";
+    document.getElementById("lbl-name-azul").innerText = document.getElementById("aname").value.trim().toUpperCase() || "AZUL";
+    document.getElementById("lbl-name-rojo").innerText = document.getElementById("rname").value.trim().toUpperCase() || "ROJO";
+    document.getElementById("lbl-club-azul").innerText = document.getElementById("aclub").value.trim().toUpperCase() || "CLUB / DELEGACIÓN";
+    document.getElementById("lbl-club-rojo").innerText = document.getElementById("rclub").value.trim().toUpperCase() || "CLUB / DELEGACIÓN";
     actualizar();
 }
 
